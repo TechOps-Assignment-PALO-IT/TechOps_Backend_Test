@@ -1,0 +1,66 @@
+name: Run static tests on the source code
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  audit: 
+    name: NPM Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js 16.x
+        uses: actions/setup-node@v2
+        with:
+          node-version: 16.x
+
+      - name: Run Audit
+        id: audit
+        run: |
+          echo 'AUDIT_REPORT<<EOF' >> $GITHUB_ENV
+          yarn audit --audit-level=critical --no-color | tee temp >> $GITHUB_ENV
+          echo 'EOF' >> $GITHUB_ENV
+        continue-on-error: true
+      - run: echo "${{ env.AUDIT_REPORT }}"
+      - name: Update Pull Request
+        uses: actions/github-script@0.9.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `#### Yarn Audit Report
+            <details><summary>Show Details</summary>
+            \`\`\`\n
+            ${process.env.AUDIT_REPORT}
+            \`\`\`
+            </details>
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`\*`;
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+  build:
+    name: Build Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ${{ github.workspace }}/node_modules
+            ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}-${{ hashFiles('**/*.js') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}-
+      - run: yarn
+      - run: yarn build
+      - uses: actions/cache@v2
+        id: cache-build
+          with:
+            path: ./*
+            key: ${{ github.sha }}
